@@ -3,15 +3,18 @@
 // Copyright © 2020 Vladimir Mashir.
 //
 
-#ifndef UNROLLED_LINKED_LIST_ULLIST_HPP
-#define UNROLLED_LINKED_LIST_ULLIST_HPP
+#ifndef INCLUDE_ULLIST_HPP_
+#define INCLUDE_ULLIST_HPP_
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <initializer_list>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <ull_iterator.hpp>
 
 namespace ull {
 
@@ -23,33 +26,49 @@ class ullist {
   using const_reference = const value_type&;
   using self = ullist;
   using self_reference = ullist&;
+  using iterator = ull_iterator<value_type>;
+  using const_iterator = const ull_iterator<value_type>;
 
+ public:
   ullist();
   explicit ullist(size_t);
-  ullist(std::initializer_list<value_type>);
+  ullist(const ullist<value_type>&);
   ~ullist();
+
   reference operator[](size_t);
   const_reference operator[](size_t) const;
-  bool operator==(std::initializer_list<value_type>) const noexcept;
-  self_reference operator=(std::initializer_list<value_type>);
-  void push_back(const_reference);
-  void pop_back();
   const_reference back() const;
   const_reference front() const;
   reference back();
   reference front();
-  size_t inline size() const noexcept;
-  size_t inline nodeCount() const noexcept;
+
+  const_iterator begin() const noexcept;
+  iterator begin() noexcept;
+  const_iterator end() const noexcept;
+  iterator end() noexcept;
+
+  bool operator==(const ullist<value_type>&) const noexcept;
+  self_reference operator=(const ullist<value_type>&);
+
+  void push_back(const_reference);
+  void pop_back();
   void insert(size_t, const_reference);
-  void resize(size_t);
-  void remove(size_t);
-  void clear();
+  void erase(size_t);
+
+  size_t size() const noexcept;
   bool empty() noexcept;
+  void reserve(size_t);
+  void resize(size_t);
+  void clear();
   void bufferedClear();
+
   std::string str() const;
 
+   /* ullist(std::initializer_list<value_type>);
+   self_reference operator=(std::initializer_list<value_type>);
+   bool operator==(std::initializer_list<value_type>) const noexcept; */
+
  private:
-  // template<class Allocator = std::allocator<value_type>>
   struct Node {
     Node* prev_;
     Node* next_;
@@ -98,43 +117,63 @@ class ullist {
   }
 };
 
-#define ULL template <class value_type, size_t nodeSize> \
-            ullist<value_type, nodeSize>::
-#define ULL_NODE template <class value_type, size_t nodeSize> \
-                 ullist<value_type, nodeSize>::Node::
-#define ULL_IMPL(rt) template <class value_type, size_t nodeSize> \
-                     rt ullist<value_type, nodeSize>::
-#define ULL_TEMPL_IMPL(type) template <class value_type, size_t nodeSize> \
+#define ULL                                    \
+  template <class value_type, size_t nodeSize> \
+  ullist<value_type, nodeSize>::
+#define ULL_IMPL(rt)                           \
+  template <class value_type, size_t nodeSize> \
+  rt ullist<value_type, nodeSize>::
+#define ULL_TEMPL_IMPL(type)                   \
+  template <class value_type, size_t nodeSize> \
   typename ullist<value_type, nodeSize>::type ullist<value_type, nodeSize>::
 
-#define ULL_NODE_IMPL(rt) template <class value_type, size_t nodeSize> \
-                          rt ullist<value_type, nodeSize>::Node::
-#define ULL_NODE_TEMPL_IMPL(type) template <class value_type, size_t nodeSize> \
-                                  typename ullist<value_type, nodeSize>::type  \
-                                  ullist<value_type, nodeSize>::Node::
+#define ULL_NODE                               \
+  template <class value_type, size_t nodeSize> \
+  ullist<value_type, nodeSize>::Node::
 
-ULL ullist() : head_(nullptr), tail_(nullptr), cache_(nullptr), size_(0),
-                nodeCount_(0) {}
+#define ULL_NODE_IMPL(rt)                      \
+  template <class value_type, size_t nodeSize> \
+  rt ullist<value_type, nodeSize>::Node::
+#define ULL_NODE_TEMPL_IMPL(type)              \
+  template <class value_type, size_t nodeSize> \
+  typename ullist<value_type, nodeSize>::type  \
+      ullist<value_type, nodeSize>::Node::
+
+ULL ullist()
+    : head_(nullptr),
+      tail_(nullptr),
+      cache_(nullptr),
+      size_(0),
+      nodeCount_(0) {}
 
 ULL ullist(size_t _n)
-    : head_(nullptr), tail_(nullptr), cache_(nullptr), size_(_n) {
+    : head_(nullptr),
+      tail_(nullptr),
+      cache_(nullptr),
+      size_(_n),
+      nodeCount_(0) {
   if (_n > 0) {
     size_t lim = ceil(static_cast<double>(_n) / nodeSize);
-    nodeCount_ = lim;
     for (size_t i = 0; i < lim; ++i) {
-      pushData(new Node);
+      appendNewTailNode();
+    }
+    for (auto current = head_; current;) {
+      current->size_ = 5;
+      if (current->next_) {
+        current = current->next_;
+      } else {
+        break;
+      }
     }
   }
 }
 
-ULL ullist(std::initializer_list<value_type> _init_list) {
-  nodeCount_ = 0;
-  size_ = 0;
-  head_ = nullptr;
-  tail_ = nullptr;
-  cache_ = nullptr;
-
-  *this = _init_list;
+ULL ullist(const ullist<value_type>& rhs) : head_(nullptr),
+                                            tail_(nullptr),
+                                            cache_(nullptr),
+                                            size_(0),
+                                            nodeCount_(0) {
+  *this = rhs;
 }
 
 ULL ~ullist() {
@@ -147,6 +186,7 @@ ULL ~ullist() {
         delete tmp;
       }
     }
+    delete current;
   }
   while (cache_) {
     Node* tmp = cache_;
@@ -177,22 +217,19 @@ ULL_TEMPL_IMPL(const_reference) operator[](size_t _i) const {
   throw std::out_of_range("ullist::the index is out of bounds of the array");
 }
 
-ULL_IMPL(bool)
-operator==(std::initializer_list<value_type> _list) const noexcept {
-  if (_list.size() != size_) {
+ULL_IMPL(bool) operator==(const ullist<value_type>& _rhs) const noexcept {
+  if (size_ != _rhs.size_) {
     return false;
   }
-  for (size_t i = 0; i < size_ - 1; ++i) {
-    if (this->operator[](i) != *(_list.begin() + i)) {
+  for (size_t i = 0; i < size_; ++i) {
+    if (this->operator[](i) != _rhs[i]) {
       return false;
     }
   }
   return true;
 }
-
-ULL_TEMPL_IMPL(self_reference)operator=(
-    std::initializer_list<value_type> _list) {
-  if (*this == _list) {
+ULL_TEMPL_IMPL(self_reference) operator=(const ullist<value_type>& _rhs) {
+  if (*this == _rhs) {
     return *this;
   }
   if (!empty()) {
@@ -200,11 +237,11 @@ ULL_TEMPL_IMPL(self_reference)operator=(
   }
 
   size_t i = 0;
-  while (size_ != _list.size()) {
+  while (size_ != _rhs.size()) {
     Node* current = newNode();
-    while (!isNodeFull(current) && size_ < _list.size()) {
+    while (!isNodeFull(current) && size_ < _rhs.size()) {
       ++size_;
-      current->push_back(*(_list.begin() + i));
+      current->push_back(_rhs[i]);
       ++i;
     }
 
@@ -218,7 +255,7 @@ ULL_TEMPL_IMPL(self_reference)operator=(
 }
 
 ULL_IMPL(void) push_back(const_reference _value) {
-  if (isNodeFull(tail_)) {
+  if (isNodeFull(tail_) || !tail_) {
     appendNewTailNode();
   }
   tail_->push_back(_value);
@@ -253,6 +290,22 @@ ULL_TEMPL_IMPL(const_reference) front() const {
   throw std::out_of_range("ullist::front called on empty ullist");
 }
 
+ULL_TEMPL_IMPL(iterator) begin() noexcept {
+  return iterator(&this->operator[](0));
+}
+
+ULL_TEMPL_IMPL(iterator) end() noexcept {
+  return iterator(&this->operator[](size_ - 1));
+}
+
+ULL_TEMPL_IMPL(const_iterator) begin() const noexcept {
+  return iterator(&this->operator[](0));
+}
+
+ULL_TEMPL_IMPL(const_iterator) end() const noexcept {
+  return iterator(&this->operator[](size_ - 1));
+}
+
 ULL_IMPL(void) pop_back() {
   if (size_ > 0) {
     tail_->pop_back();
@@ -266,8 +319,6 @@ ULL_IMPL(void) pop_back() {
 }
 
 ULL_IMPL(size_t) size() const noexcept { return size_; }
-
-ULL_IMPL(size_t) nodeCount() const noexcept { return nodeCount_; }
 
 ULL_IMPL(void) insert(size_t _i, const_reference _value) {
   if (_i >= size_) {
@@ -283,7 +334,7 @@ ULL_IMPL(void) insert(size_t _i, const_reference _value) {
     size_t offset = 0;
     at(_i, target, offset);
     if (isNodeFull(target)) {
-      if (offset == 0) { // вставляем до
+      if (offset == 0) {  // вставляем до
         Node* insert;
         if (isNodeFull(target->prev_)) {
           insert = newNode();
@@ -301,17 +352,16 @@ ULL_IMPL(void) insert(size_t _i, const_reference _value) {
           // в этом случае у правого next_ нода есть место для смещения
           // перемещаемся на _next
           insert = target->next_;
-          std::move(insert->data_ - 1,
-                             insert->data_ + insert->size_ - 1,
-                             insert->data_ + insert->size_ + shiftLen - 1);
+          std::move(insert->data_ - 1, insert->data_ + insert->size_ - 1,
+                    insert->data_ + insert->size_ + shiftLen - 1);
           // перемещаем элементы из target в _next
           std::move(target->data_ + offset, target->data_ + nodeSize,
                     insert->data_);
           target->size_ -= shiftLen;
           insert->size_ += shiftLen;
         } else {  // если target == tail_ или target->next_ заполнена или нет
-                  // места, чтобы сдвинуть вправо
-                  // в этом случае _value уйдет в новый нод
+          // места, чтобы сдвинуть вправо
+          // в этом случае _value уйдет в новый нод
           insert = newNode();
           if (target == tail_) {
             link(tail_, insert);
@@ -337,11 +387,11 @@ ULL_IMPL(void) insert(size_t _i, const_reference _value) {
   }
 }
 
-ULL_IMPL(void) resize(size_t _n) {
+ULL_IMPL(void) reserve(size_t _n) {
   if (_n == size_) {
     throw std::bad_alloc();
   }
-  size_t newNodeCount = ceil(static_cast<float>(_n) / nodeSize);
+  size_t newNodeCount = ceil(static_cast<double>(_n) / nodeSize);
   if (_n > size_) {
     if (newNodeCount == nodeCount_) {
       size_ = _n;
@@ -364,12 +414,55 @@ ULL_IMPL(void) resize(size_t _n) {
       pop_back();
     }
   }
+}
+
+ULL_IMPL(void) resize(size_t _n) {
+  size_t prevN = size_;
+  size_t newNodeCount = ceil(static_cast<double>(_n) / nodeSize);
+  if (_n > size_) {
+    if (newNodeCount == nodeCount_) {
+      size_ = _n;
+      return;
+    } else if (nodeCount_ == 0) {
+      while (nodeCount_ != newNodeCount) {
+        if (this->nodeCount_ == 0) {
+          appendNewHeadNode();
+        } else {
+          appendNewTailNode();
+        }
+      }
+    } else {
+      while (nodeCount_ != newNodeCount) {
+        appendNewTailNode();
+      }
+    }
+  } else if (_n < size_) {
+    while (size_ != _n) {
+      pop_back();
+    }
+  }
+
+  for (auto current = head_; current;) {
+    if (!current->next_) {
+      if (nodeCount_ == 1) {
+        current->size_ = _n;
+      } else {
+        current->size_ = _n - (nodeCount_ * nodeSize);
+      }
+      break;
+    }
+    current->size_ = nodeSize;
+    current = current->next_;
+  }
+  for (size_t i = prevN; i < size_; ++i) {
+    this->operator[](i) = value_type();
+  }
   size_ = _n;
 }
 
-ULL_IMPL(void) remove(size_t _i) {
+ULL_IMPL(void) erase(size_t _i) {
   if (size_ == 0) {
-    throw std::out_of_range("ullist::remove called on empty ullist");
+    throw std::out_of_range("ullist::erase called on empty ullist");
   }
   if (_i >= size_) {
     throw std::out_of_range("ullist::the index is out of bounds of the array");
@@ -526,8 +619,7 @@ ULL_IMPL(void) deleteNode(Node* _node) {
 
   if (cache_) {
     delete _node;
-  }
-  else {
+  } else {
     _node->clear();
     pushData(_node);
   }
@@ -548,12 +640,11 @@ at(size_t _i, Node*& _inputNode, size_t& offset) const {
   offset = _i - i;
 }
 
-ULL_IMPL(bool) isNodeFull(ullist::Node*_node) {
+ULL_IMPL(bool) isNodeFull(ullist::Node* _node) {
   return _node == nullptr || _node->size_ == nodeSize;
-  ;
 }
 
-ULL_IMPL(bool) isNodeEmpty(Node*_node) {
+ULL_IMPL(bool) isNodeEmpty(Node* _node) {
   return _node != nullptr && _node->size_ == 0;
 }
 
@@ -562,7 +653,7 @@ ULL_IMPL(void) link(Node* _left, Node* _right) {
   _right->prev_ = _left;
 }
 
-ULL_IMPL(void) unlink(Node* _left, Node*_right) {
+ULL_IMPL(void) unlink(Node* _left, Node* _right) {
   _left->next_ = nullptr;
   _right->prev_ = nullptr;
 }
@@ -576,7 +667,8 @@ ULL_NODE Node() : prev_(nullptr), next_(nullptr), size_(0u) {
   }
 }
 
-ULL_NODE Node(Node* _prev, Node*_next) : prev_(_prev), next_(_next), size_(0u) {
+ULL_NODE Node(Node* _prev, Node* _next)
+    : prev_(_prev), next_(_next), size_(0u) {
   data_ = allocator_.allocate(nodeSize);
   _prev->prev_ = this;
   _next->next_ = this;
@@ -584,13 +676,15 @@ ULL_NODE Node(Node* _prev, Node*_next) : prev_(_prev), next_(_next), size_(0u) {
 
 ULL_NODE ~Node() {
   if (data_) {
+    allocator_.destroy(data_);
     allocator_.deallocate(data_, nodeSize);
     data_ = nullptr;
   }
 }
 
 ULL_NODE_IMPL(void) clear() {
-  if (std::is_destructible<value_type>::value) {
+  if (std::is_destructible<value_type>::value && data_) {
+    allocator_.destroy(data_);
     allocator_.deallocate(data_, nodeSize);
   }
   size_ = 0;
@@ -642,8 +736,9 @@ ULL_NODE_IMPL(value_type) remove(size_t _i) {
   if (_i >= size_ - 1) {
     return back();
   } else {
-    value_type oldData =
-        std::is_move_assignable<value_type>() ? std::move(data_[_i]) : data_[_i];
+    value_type oldData = std::is_move_assignable<value_type>()
+                             ? std::move(data_[_i])
+                             : data_[_i];
     std::move(data_ + _i + 1, data_ + size_, data_ + _i);
     --size_;
     return oldData;
@@ -672,9 +767,8 @@ ULL_NODE_TEMPL_IMPL(const_reference) operator[](size_t _i) const {
       i = check;
     }
   }
-}*/
+}
 
-/*
  ULL_TEMPL_IMPL(Node*) insertNewNodeAt(size_t i) {
   ++nodeCount_;
   if (nodeCount_ == 0) {
@@ -690,9 +784,9 @@ ULL_NODE_TEMPL_IMPL(const_reference) operator[](size_t _i) const {
     link(insert->prev_, insert);
     return insert;
   }
-}*/
+}
 
-/*ULL_TEMPL_IMPL(Node*) nodeAt(size_t _i) {
+ULL_TEMPL_IMPL(Node*) nodeAt(size_t _i) {
   if (isInBounds(static_cast<size_t>(0), nodeCount_, _i)) {
     Node* current = head_;
     for (size_t i = 0; i < _i; ++i) {
@@ -700,5 +794,56 @@ ULL_NODE_TEMPL_IMPL(const_reference) operator[](size_t _i) const {
     }
     return current;
   }
-}*/
-#endif  // UNROLLED_LINKED_LIST_ULLIST_HPP
+}
+
+ULL ullist(std::initializer_list<value_type> _init_list) {
+   nodeCount_ = 0;
+   size_ = 0;
+   head_ = nullptr;
+   tail_ = nullptr;
+   cache_ = nullptr;
+
+   *this = _init_list;
+ }
+
+ ULL_IMPL(bool)
+ operator==(std::initializer_list<value_type> _list) const noexcept {
+ if (_list.size() != size_) {
+ return false;
+ }
+ for (size_t i = 0; i < size_ - 1; ++i) {
+ if (this->operator[](i) != *(_list.begin() + i)) {
+ return false;
+ }
+ }
+ return true;
+ }
+
+ ULL_TEMPL_IMPL(self_reference)operator=(
+     std::initializer_list<value_type> _list) {
+   if (*this == _list) {
+     return *this;
+   }
+   if (!empty()) {
+     bufferedClear();
+   }
+
+   size_t i = 0;
+   while (size_ != _list.size()) {
+     Node* current = newNode();
+     while (!isNodeFull(current) && size_ < _list.size()) {
+       ++size_;
+       current->push_back(*(_list.begin() + i));
+       ++i;
+     }
+
+     if (this->nodeCount_ == 0) {
+       appendNewHeadNode(current);
+     } else {
+       appendNewTailNode(current);
+     }
+   }
+   return *this;
+ } */
+
+#endif  // INCLUDE_ULLIST_HPP_
